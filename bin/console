@@ -1,0 +1,104 @@
+#!/usr/bin/env php
+<?php
+
+date_default_timezone_set('UTC');
+set_time_limit(0);
+
+define('BASEDIR', dirname(__DIR__));
+
+require BASEDIR.'/vendor/autoload.php';
+
+use Symfony\Component\Console\Application;
+use Pimple\Container;
+use Utils\XMLParser;
+
+// becaues array_map have a terrible parameter order
+if (!function_exists('map')) {
+    function map($iterator, $func)
+    {
+        $results = [];
+
+        foreach ($iterator as $key => $value) {
+            $results[$key] = $func($value, $key);
+        }
+
+        return $results;
+    }
+}
+
+if (!function_exists('reduce')) {
+    function reduce($iterator, $func, $result = null)
+    {
+        foreach ($iterator as $key => $value) {
+            $result = $func($result, $value, $key);
+        }
+
+        return $result;
+    }
+}
+
+if (!function_exists('average')) {
+    function average($array)
+    {
+        return array_sum($array) / count($array);
+    }
+}
+
+$container = new Container();
+
+$container['progress_logger'] = function () {
+    $logger = new Monolog\Logger('progress_logger');
+
+    return $logger;
+};
+
+$container['xml'] = function () {
+    return new XMLParser();
+};
+
+$container['wp_api'] = function () {
+    return new lracicot\WordPressOrgApi\WordPressOrgApi();
+};
+
+$container['maintainability_analyzer'] = $container->factory(function ($c) {
+    return new \Analyzer\Maintainability\VisserMetrics($c['progress_logger']);
+});
+
+$container['wordpresscoupling_analyzer'] = $container->factory(function ($c) {
+    return new \Analyzer\WordpressCoupling\WordpressCoupling($c['progress_logger']);
+});
+
+$container['phpversion_analyzer'] = $container->factory(function ($c) {
+    return new \Analyzer\PHPVersion\PHPVersion($c['progress_logger']);
+});
+
+$container['namespacepollution_analyzer'] = $container->factory(function ($c) {
+    return new \Analyzer\NamespacePollution\NamespacePollution($c['progress_logger']);
+});
+
+$container['maintainability_reporter'] = $container->factory(function ($c) {
+    return new \Reporter\Maintainability\VisserMetrics($c['progress_logger'], $c['xml']);
+});
+
+$container['wordpresscoupling_reporter'] = $container->factory(function ($c) {
+    return new \Reporter\WordpressCoupling\WordpressCoupling($c['progress_logger']);
+});
+
+$container['phpversion_reporter'] = $container->factory(function ($c) {
+    return new \Reporter\PHPVersion\PHPVersion($c['progress_logger']);
+});
+
+$container['namespacepollution_reporter'] = $container->factory(function ($c) {
+    return new \Reporter\NamespacePollution\NamespacePollution($c['progress_logger']);
+});
+
+$application = new Application();
+$application->addCommands([
+    new Command\Plugins($container),
+    new Command\Themes($container),
+    new Command\Analyse($container),
+    new Command\AnalyseWP($container),
+    new Command\Report($container),
+    new Command\ReportWP($container),
+]);
+$application->run();
